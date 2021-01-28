@@ -42,22 +42,23 @@ def main():
 
         if sys.argv[1].lower() == 'upload':
             if len(sys.argv) == 3:
+                run_path = os.path.abspath('.')
                 if os.path.exists(sys.argv[2]):
                     #Conversao para tar e criptografia
-                    tar_name = sys.argv[2][sys.argv[2].index('/') + 1:] + '.tar'
-                    subprocess.run(['tar', '-cf', tar_name, sys.argv[2]])
+                    tar_name = '{}/{}.tar'.format(PROJECT_DIR, sys.argv[2])
+                    subprocess.run(['tar', '-cf', tar_name, '{}/{}'.format(run_path, sys.argv[2])])
                     subprocess.run(['gpg', '-c', '--no-symkey-cache', '--cipher-algo', 'AES256', tar_name])
-                    
+
                     #Verificando se ja existe um arquivo com o mesmo nome no Drive
                     response = drive_service.files().list(
-                                            q="name='{}'".format(tar_name + '.gpg'),
+                                            q="name='{}'".format(sys.argv[2] + '.tar.gpg'),
                                             spaces='drive',
                                             fields='files(id)').execute()
                     
                     #Caso o arquivo não exista, basta criá-lo
                     if len(response['files']) == 0:
-                        metadata = {'name': tar_name + '.gpg', 'parents': [PARENT_FOLDER_ID]}
-                        media = MediaFileUpload(sys.argv[2] + '.tar.gpg')
+                        metadata = {'name': sys.argv[2] + '.tar.gpg', 'parents': [PARENT_FOLDER_ID]}
+                        media = MediaFileUpload(tar_name)
                         file = drive_service.files().create(
                             body=metadata,
                             media_body=media,
@@ -67,7 +68,7 @@ def main():
                     #Caso já exista, apresentar a opcao de sobreescrever
                     else:
                         if str(input('Já existe um arquivo com esse nome. Deseja sobrescrever? (y/n): ')).lower() == 'y':
-                            media = MediaFileUpload(sys.argv[2] + '.tar.gpg')
+                            media = MediaFileUpload(tar_name)
                             file = drive_service.files().update(
                                         media_body=media,
                                         fileId=response['files'][0]['id'],
@@ -77,18 +78,21 @@ def main():
                     #Removendo os arquivos temporarios gerados
                     subprocess.run(['rm', tar_name])
                     subprocess.run(['rm', tar_name + '.gpg'])
-                    
+
+                else:
+                    print("O arquivo selecionado não existe.")
             else:
-                print("Faltou o caminho completo do arquivo.")
+                print("Argumento do arquivo faltante.")
 
         if sys.argv[1].lower() == 'download':
             pass
 
         if sys.argv[1].lower() == 'list':
-            pass
-
-
-        
+            response = drive_service.files().list(
+                                            q="'{}' in parents".format(PARENT_FOLDER_ID),
+                                            spaces='drive',
+                                            fields='files(id, name)').execute()
+            [print(i) for i in response['files']]
 
 if __name__ == '__main__':
     main()
