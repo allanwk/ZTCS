@@ -1,7 +1,7 @@
 #!/usr/bin/python3
-
 import sys
-import os
+import os.path
+import subprocess
 
 #Dependencias Google Drive
 from googleapiclient.discovery import build
@@ -17,7 +17,7 @@ SCOPES = ['https://www.googleapis.com/auth/drive']
 def main():
     #Carregando variáveis de ambiente
     load_dotenv()
-    DATA_FILE_ID = os.environ.get("DATA_FILE_ID")
+    PARENT_FOLDER_ID = os.environ.get("PARENT_FOLDER_ID")
     PROJECT_DIR = os.environ.get("PROJECT_DIR")
 
     #Verificando argumentos da linha de comando
@@ -41,7 +41,45 @@ def main():
         drive_service = build('drive', 'v3', credentials=creds)
 
         if sys.argv[1].lower() == 'upload':
-            pass
+            if len(sys.argv) == 3:
+                if os.path.exists(sys.argv[2]):
+                    #Conversao para tar e criptografia
+                    tar_name = sys.argv[2][sys.argv[2].index('/') + 1:] + '.tar'
+                    subprocess.run(['tar', '-cf', tar_name, sys.argv[2]])
+                    subprocess.run(['gpg', '-c', '--no-symkey-cache', '--cipher-algo', 'AES256', tar_name])
+                    
+                    #Verificando se ja existe um arquivo com o mesmo nome no Drive
+                    response = drive_service.files().list(
+                                            q="name='{}'".format(tar_name + '.gpg'),
+                                            spaces='drive',
+                                            fields='files(id)').execute()
+                    
+                    #Caso o arquivo não exista, basta criá-lo
+                    if len(response['files']) == 0:
+                        metadata = {'name': tar_name + '.gpg', 'parents': [PARENT_FOLDER_ID]}
+                        media = MediaFileUpload(sys.argv[2] + '.tar.gpg')
+                        file = drive_service.files().create(
+                            body=metadata,
+                            media_body=media,
+                            fields='id').execute()
+                        print('Arquivo salvo no Drive.')
+
+                    #Caso já exista, apresentar a opcao de sobreescrever
+                    else:
+                        if str(input('Já existe um arquivo com esse nome. Deseja sobrescrever? (y/n): ')).lower() == 'y':
+                            media = MediaFileUpload(sys.argv[2] + '.tar.gpg')
+                            file = drive_service.files().update(
+                                        media_body=media,
+                                        fileId=response['files'][0]['id'],
+                                        fields='id').execute()
+                            print('Arquivo atualizado no Drive.')
+                    
+                    #Removendo os arquivos temporarios gerados
+                    subprocess.run(['rm', tar_name])
+                    subprocess.run(['rm', tar_name + '.gpg'])
+                    
+            else:
+                print("Faltou o caminho completo do arquivo.")
 
         if sys.argv[1].lower() == 'download':
             pass
