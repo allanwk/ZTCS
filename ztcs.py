@@ -2,10 +2,11 @@
 import sys
 import os.path
 import subprocess
+import io
 
 #Dependencias Google Drive
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from dotenv import load_dotenv
@@ -44,55 +45,60 @@ def main():
             if len(sys.argv) == 3:
                 run_path = os.path.abspath('.')
                 if os.path.exists(sys.argv[2]):
-                    #Conversao para tar e criptografia
-                    tar_name = '{}/{}.tar'.format(PROJECT_DIR, sys.argv[2])
-                    subprocess.run(['tar', '-cf', tar_name, '{}/{}'.format(run_path, sys.argv[2])])
-                    subprocess.run(['gpg', '-c', '--no-symkey-cache', '--cipher-algo', 'AES256', tar_name])
+                    #Verificando se é um diretório ou arquivo
+                    if os.path.isfile(sys.argv[2]):
 
-                    #Verificando se ja existe um arquivo com o mesmo nome no Drive
-                    response = drive_service.files().list(
-                                            q="name='{}'".format(sys.argv[2] + '.tar.gpg'),
-                                            spaces='drive',
-                                            fields='files(id)').execute()
-                    
-                    #Caso o arquivo não exista, basta criá-lo
-                    if len(response['files']) == 0:
-                        metadata = {'name': sys.argv[2] + '.tar.gpg', 'parents': [PARENT_FOLDER_ID]}
-                        media = MediaFileUpload(tar_name)
-                        file = drive_service.files().create(
-                            body=metadata,
-                            media_body=media,
-                            fields='id').execute()
-                        print('Arquivo salvo no Drive.')
+                        #Conversao para tar e criptografia
+                        subprocess.run(['gpg', '-c', '--no-symkey-cache', '--cipher-algo', 'AES256', sys.argv[2]])
+                        print("Criptografia aplicada com sucesso.")
 
-                    #Caso já exista, apresentar a opcao de sobreescrever
-                    else:
-                        if str(input('Já existe um arquivo com esse nome. Deseja sobrescrever? (y/n): ')).lower() == 'y':
-                            media = MediaFileUpload(tar_name)
+                        #Verificando se ja existe um arquivo com o mesmo nome no Drive
+                        response = drive_service.files().list(
+                                                q="name='{}'".format(sys.argv[2] + '.gpg'),
+                                                spaces='drive',
+                                                fields='files(id)').execute()
+                        
+                        #Caso o arquivo não exista, basta criá-lo
+                        if len(response['files']) == 0:
+                            metadata = {'name': sys.argv[2] + '.gpg', 'parents': [PARENT_FOLDER_ID]}
+                            media = MediaFileUpload("{}/{}.gpg".format(run_path, sys.argv[2]))
+                            file = drive_service.files().create(
+                                body=metadata,
+                                media_body=media,
+                                fields='id').execute()
+                            print('Arquivo salvo no Drive.')
+
+                        #Caso já exista, apresentar a opcao de sobreescrever
+                        elif str(input('Já existe um arquivo com esse nome no Drive. Deseja sobrescrever? (y/n): ')).lower() == 'y':
+                            media = MediaFileUpload("{}/{}.gpg".format(run_path, sys.argv[2]))
                             file = drive_service.files().update(
                                         media_body=media,
                                         fileId=response['files'][0]['id'],
                                         fields='id').execute()
                             print('Arquivo atualizado no Drive.')
-                    
-                    #Removendo os arquivos temporarios gerados
-                    subprocess.run(['rm', tar_name])
-                    subprocess.run(['rm', tar_name + '.gpg'])
-
+                        
+                        #Removendo os arquivos temporarios gerados
+                        subprocess.run(['rm', "{}/{}.gpg".format(run_path, sys.argv[2])])
                 else:
                     print("O arquivo selecionado não existe.")
             else:
                 print("Argumento do arquivo faltante.")
 
-        if sys.argv[1].lower() == 'download':
-            pass
+        elif sys.argv[1].lower() == 'download':
+            if len(sys.argv) == 3:
+                pass
+            else:
+                print("Argumento do arquivo faltante.")
 
-        if sys.argv[1].lower() == 'list':
+        elif sys.argv[1].lower() == 'list':
             response = drive_service.files().list(
                                             q="'{}' in parents".format(PARENT_FOLDER_ID),
                                             spaces='drive',
                                             fields='files(id, name)').execute()
             [print(i) for i in response['files']]
+
+        else:
+            print("Opção selecionada inválida.")
 
 if __name__ == '__main__':
     main()
