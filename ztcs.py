@@ -101,7 +101,33 @@ def main():
 
         elif sys.argv[1].lower() == 'download':
             if len(sys.argv) == 3:
-                pass
+                #Verificando existência do arquivo no Drive
+                response = drive_service.files().list(
+                                            q="name='{}'".format(sys.argv[2]),
+                                            spaces='drive',
+                                            fields='files(id,name)').execute()
+
+                if len(response['files']) == 1:
+                    #Download do arquivo
+                    downloaded_file_name = response['files'][0]['name']
+                    request = drive_service.files().get_media(fileId=response['files'][0]['id'])
+                    fh = io.FileIO('./' + sys.argv[2], mode='wb')
+                    downloader = MediaIoBaseDownload(fh, request)
+                    done = False
+                    while done is False:
+                        status, done = downloader.next_chunk()
+                        print("\rDownloading: {}%".format(int(status.progress() * 100)))
+                    
+                    #Remocao da criptografia e tar caso necessario
+                    subprocess.run(['gpg', '--no-symkey-cache', downloaded_file_name])
+                    subprocess.run(['rm', downloaded_file_name])
+                    if '.tar' in downloaded_file_name:
+                        subprocess.run(['tar', 'xfz', downloaded_file_name[:downloaded_file_name.index('.gpg')]])
+                        subprocess.run(['rm'] + glob.glob('{}.*'.format(downloaded_file_name[:downloaded_file_name.index('.tar')])))
+                    
+                else:
+                    print("O arquivo selecionado não existe no Drive.")
+
             else:
                 print("Argumento do arquivo faltante.")
 
