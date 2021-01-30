@@ -3,6 +3,7 @@ import sys
 import os.path
 import subprocess
 import io
+import glob
 
 #Dependencias Google Drive
 from googleapiclient.discovery import build
@@ -14,6 +15,32 @@ import pickle
 
 #Escopos de autorização da API do Google Drive
 SCOPES = ['https://www.googleapis.com/auth/drive']
+
+def upload(drive_service, drive_file_name, parent_folder_id):
+    #Verificando se ja existe um arquivo com o mesmo nome no Drive
+    response = drive_service.files().list(
+                            q="name='{}'".format(drive_file_name),
+                            spaces='drive',
+                            fields='files(id)').execute()
+    media = MediaFileUpload("./" + drive_file_name)
+    if len(response['files']) == 0:
+        metadata = {'name': drive_file_name, 'parents': [parent_folder_id]}
+        file = drive_service.files().create(
+            body=metadata,
+            media_body=media,
+            fields='id').execute()
+        print('Arquivo salvo no Drive.')
+
+    #Caso já exista, apresentar a opcao de sobreescrever
+    elif str(input('Já existe um arquivo com esse nome no Drive. Deseja sobrescrever? (y/n): ')).lower() == 'y':
+        file = drive_service.files().update(
+                    media_body=media,
+                    fileId=response['files'][0]['id'],
+                    fields='id').execute()
+        print('Arquivo atualizado no Drive.')
+
+    else:
+        print("Upload cancelado.")
 
 def main():
     #Carregando variáveis de ambiente
@@ -47,38 +74,26 @@ def main():
                 if os.path.exists(sys.argv[2]):
                     #Verificando se é um diretório ou arquivo
                     if os.path.isfile(sys.argv[2]):
-
                         #Conversao para tar e criptografia
                         subprocess.run(['gpg', '-c', '--no-symkey-cache', '--cipher-algo', 'AES256', sys.argv[2]])
                         print("Criptografia aplicada com sucesso.")
-
-                        #Verificando se ja existe um arquivo com o mesmo nome no Drive
-                        response = drive_service.files().list(
-                                                q="name='{}'".format(sys.argv[2] + '.gpg'),
-                                                spaces='drive',
-                                                fields='files(id)').execute()
                         
-                        #Caso o arquivo não exista, basta criá-lo
-                        if len(response['files']) == 0:
-                            metadata = {'name': sys.argv[2] + '.gpg', 'parents': [PARENT_FOLDER_ID]}
-                            media = MediaFileUpload("{}/{}.gpg".format(run_path, sys.argv[2]))
-                            file = drive_service.files().create(
-                                body=metadata,
-                                media_body=media,
-                                fields='id').execute()
-                            print('Arquivo salvo no Drive.')
+                        #Realizando upload para o Drive
+                        upload(drive_service, sys.argv[2] + '.gpg', PARENT_FOLDER_ID)
 
-                        #Caso já exista, apresentar a opcao de sobreescrever
-                        elif str(input('Já existe um arquivo com esse nome no Drive. Deseja sobrescrever? (y/n): ')).lower() == 'y':
-                            media = MediaFileUpload("{}/{}.gpg".format(run_path, sys.argv[2]))
-                            file = drive_service.files().update(
-                                        media_body=media,
-                                        fileId=response['files'][0]['id'],
-                                        fields='id').execute()
-                            print('Arquivo atualizado no Drive.')
-                        
                         #Removendo os arquivos temporarios gerados
-                        subprocess.run(['rm', "{}/{}.gpg".format(run_path, sys.argv[2])])
+                        subprocess.run(['rm', "{}.gpg".format(sys.argv[2])])
+                    
+                    else:
+                        #Caso seja um diretorio, aplica-se a conversao em tar antes de criptografar
+                        subprocess.run(['tar', 'cfz', "{}.tar.gz".format(sys.argv[2]), sys.argv[2]])
+                        subprocess.run(['gpg', '-c', '--no-symkey-cache', '--cipher-algo', 'AES256', "{}.tar.gz".format(sys.argv[2])])
+
+                        #Realizando upload para o Drive
+                        upload(drive_service, sys.argv[2] + '.tar.gz.gpg', PARENT_FOLDER_ID)
+
+                        #Removendo arquivos temporarios gerados
+                        subprocess.run(['rm'] + glob.glob('{}.*'.format(sys.argv[2])))
                 else:
                     print("O arquivo selecionado não existe.")
             else:
