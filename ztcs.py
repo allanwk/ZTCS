@@ -55,11 +55,12 @@ class Window(QMainWindow):
         self.listWidget.setGeometry(QtCore.QRect(10, 30, 256, 192))
         self.listWidget.setObjectName("listWidget")
         self.listWidget.itemDoubleClicked.connect(self.navigate_or_download)
+        self.listWidget.installEventFilter(self)
 
         self.AddFolderButton = QtWidgets.QPushButton(self)
         self.AddFolderButton.setGeometry(QtCore.QRect(10, 230, 135, 23))
         self.AddFolderButton.setText("Adicionar pasta")
-        self.AddFolderButton.clicked.connect(self.navigate_or_download)
+        self.AddFolderButton.clicked.connect(self.add_folder)
 
         self.dirUpButton = QToolButton(self)
         self.dirUpButton.setGeometry(QtCore.QRect(10, 10, 25, 19))
@@ -71,9 +72,28 @@ class Window(QMainWindow):
         self.directory_label.setObjectName(u"directory_label")
         self.directory_label.setGeometry(QtCore.QRect(40, 10, 181, 16))
     
+    def eventFilter(self, source, event):
+        """Eventfilter para criação de menus de contexto"""
+        if event.type() == QtCore.QEvent.ContextMenu:
+            self.menu = QtWidgets.QMenu(self)
+            downloadAction = QtWidgets.QAction('Fazer download', self)
+            downloadAction.triggered.connect(self.navigate_or_download)
+            deleteAction = QtWidgets.QAction('Excluir', self)
+            deleteAction.triggered.connect(self.deleteFile)
+            createFolderAction = QtWidgets.QAction('Criar pasta', self)
+            createFolderAction.triggered.connect(self.add_folder)
+            self.menu.addAction(downloadAction)
+            self.menu.addAction(deleteAction)
+            self.menu.addAction(createFolderAction)
+            self.menu.popup(QtGui.QCursor.pos())
+        return super().eventFilter(source, event)
+
     def add_folder(self):
         """Criação de pastas no diretório atual"""
         text, ok = QInputDialog().getText(self, '', "Nome da pasta:", QLineEdit.Normal)
+        if text in self.directories:
+            QtWidgets.QMessageBox().about(self, '', 'Já existe uma pasta com esse nome.')
+            return
         if ok:
             folder_name_enc = Fernet(self.key).encrypt(bytes(text, 'utf-8')).decode('utf-8')
             file_metadata = {
@@ -116,9 +136,11 @@ class Window(QMainWindow):
         response = self.drive_service.files().list(
                             q="'{}' in parents and mimeType = 'text/plain'".format(self.current_dir['id']),
                             spaces='drive',
-                            fields='files(name, id)').execute()
+                            fields='files(name, id, trashed)').execute()
         self.saved_files.clear()
         for file in response['files']:
+            if file['trashed']:
+                continue
             try:
                 dec = Fernet(self.key).decrypt(bytes(file['name'], 'utf-8')).decode('utf-8')
                 self.saved_files[dec] = file['id']
@@ -129,9 +151,11 @@ class Window(QMainWindow):
         response = self.drive_service.files().list(
                             q="'{}' in parents and mimeType = 'application/vnd.google-apps.folder'".format(self.current_dir['id']),
                             spaces='drive',
-                            fields='files(name, id)').execute()
+                            fields='files(name, id, trashed)').execute()
         self.directories.clear()
         for file in response['files']:
+            if file['trashed']:
+                continue
             try:
                 dec = Fernet(self.key).decrypt(bytes(file['name'], 'utf-8')).decode('utf-8')
                 self.directories[dec] = file['id']
@@ -180,6 +204,21 @@ class Window(QMainWindow):
                 
                 self.get_saved_files()
 
+    def deleteFile(self):
+        """Função para excluir uma pasta ou arquivo.
+        O arquivo é movido para a lixeira do drive"""
+        selected = self.listWidget.currentItem().text()
+        qm = QtWidgets.QMessageBox()
+        ret = qm.question(self,'', "Deseja excluir {} ?".format(selected), qm.Yes | qm.No)
+        if ret == qm.Yes:
+            if selected[0] == '/':
+                file_id = self.directories[selected[1:]]
+            else:
+                file_id = self.saved_files[selected]            
+            request = self.drive_service.files().update(fileId=file_id, body={'trashed': True}).execute()
+            self.get_saved_files()
+            QtWidgets.QMessageBox().about(self, '', "Arquivo movido para a lixeira.")
+        
     def up_dir(self):
         """Subir um diretório no visualizador de arquivos"""
         if self.parent_dir['valid']:

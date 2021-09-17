@@ -23,3 +23,4 @@ Funcionalidades
 - Ao realizar um download, o sistema descriptografa o nome e conteúdo automaticamente
 - Criação de pastas com nomes criptografados
 - Visualização em lista dos arquivos salvos
+- Exclusão de arquivos, sendo estes movidos para a lixeira

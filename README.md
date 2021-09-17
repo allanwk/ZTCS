@@ -22,3 +22,4 @@ Functionality
 - Automatic decryption of files after download
 - Creation of encrypted folders
 - Visualization of stored files
+- File deletion
