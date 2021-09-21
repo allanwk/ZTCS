@@ -33,13 +33,14 @@ class Window(QMainWindow):
         """Inicialização da janela principal"""
         super(Window, self).__init__()
         self.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
-        self.setGeometry(200,200,435,275)
+        self.setGeometry(200,200,435,300)
         self.setWindowTitle("ZTCS")
         self.key = key
         self.parent_dir = {}
         self.saved_files = {}
         self.directories = {}
         self.current_dir = {'id':DRIVE_FOLDER_ID, 'name':''}
+        self.showTrash = False
         if self.key != 0:
             self.drive_service = drive_service
             self.setAcceptDrops(True)
@@ -52,39 +53,50 @@ class Window(QMainWindow):
         """Inicialização dos elementos da interface gráfica"""
         #Lista
         self.listWidget = QtWidgets.QListWidget(self)
-        self.listWidget.setGeometry(QtCore.QRect(10, 30, 256, 192))
+        self.listWidget.setGeometry(QtCore.QRect(10, 50, 411, 211))
         self.listWidget.setObjectName("listWidget")
         self.listWidget.itemDoubleClicked.connect(self.navigate_or_download)
         self.listWidget.installEventFilter(self)
 
-        self.AddFolderButton = QtWidgets.QPushButton(self)
-        self.AddFolderButton.setGeometry(QtCore.QRect(10, 230, 135, 23))
-        self.AddFolderButton.setText("Adicionar pasta")
-        self.AddFolderButton.clicked.connect(self.add_folder)
+        self.menuBar = self.menuBar()
+        fileMenu = QtWidgets.QMenu("Arquivo", self)
+        self.menuBar.addMenu(fileMenu)
+        createFolderAction = QtWidgets.QAction('Criar pasta', self)
+        createFolderAction.triggered.connect(self.add_folder)
+        viewTrashAction = QtWidgets.QAction('Lixeira', self, checkable=True)
+        viewTrashAction.triggered.connect(self.toggle_trash)
+        fileMenu.addAction(createFolderAction)
+        fileMenu.addAction(viewTrashAction)
 
         self.dirUpButton = QToolButton(self)
-        self.dirUpButton.setGeometry(QtCore.QRect(10, 10, 25, 19))
+        self.dirUpButton.setGeometry(QtCore.QRect(10, 30, 25, 19))
         self.dirUpButton.setToolButtonStyle(QtCore.Qt.ToolButtonIconOnly)
         self.dirUpButton.setArrowType(QtCore.Qt.UpArrow)
         self.dirUpButton.clicked.connect(self.up_dir)
 
         self.directory_label = QLabel(self)
         self.directory_label.setObjectName(u"directory_label")
-        self.directory_label.setGeometry(QtCore.QRect(40, 10, 181, 16))
+        self.directory_label.setGeometry(QtCore.QRect(40, 30, 181, 16))
     
     def eventFilter(self, source, event):
         """Eventfilter para criação de menus de contexto"""
         if event.type() == QtCore.QEvent.ContextMenu:
             self.menu = QtWidgets.QMenu(self)
-            downloadAction = QtWidgets.QAction('Fazer download', self)
-            downloadAction.triggered.connect(self.navigate_or_download)
-            deleteAction = QtWidgets.QAction('Excluir', self)
-            deleteAction.triggered.connect(self.deleteFile)
-            createFolderAction = QtWidgets.QAction('Criar pasta', self)
-            createFolderAction.triggered.connect(self.add_folder)
-            self.menu.addAction(downloadAction)
-            self.menu.addAction(deleteAction)
-            self.menu.addAction(createFolderAction)
+            if not self.showTrash:
+                downloadAction = QtWidgets.QAction('Fazer download', self)
+                downloadAction.triggered.connect(self.navigate_or_download)
+                deleteAction = QtWidgets.QAction('Excluir', self)
+                deleteAction.triggered.connect(self.deleteFile)
+                createFolderAction = QtWidgets.QAction('Criar pasta', self)
+                createFolderAction.triggered.connect(self.add_folder)
+                self.menu.addAction(downloadAction)
+                self.menu.addAction(deleteAction)
+                self.menu.addAction(createFolderAction)
+            else:
+                restoreAction = QtWidgets.QAction('Restaurar', self)
+                restoreAction.triggered.connect(self.restore_file)
+                self.menu.addAction(restoreAction)
+
             self.menu.popup(QtGui.QCursor.pos())
         return super().eventFilter(source, event)
 
@@ -139,7 +151,7 @@ class Window(QMainWindow):
                             fields='files(name, id, trashed)').execute()
         self.saved_files.clear()
         for file in response['files']:
-            if file['trashed']:
+            if file['trashed'] ^ self.showTrash:
                 continue
             try:
                 dec = Fernet(self.key).decrypt(bytes(file['name'], 'utf-8')).decode('utf-8')
@@ -154,7 +166,7 @@ class Window(QMainWindow):
                             fields='files(name, id, trashed)').execute()
         self.directories.clear()
         for file in response['files']:
-            if file['trashed']:
+            if file['trashed'] ^ self.showTrash:
                 continue
             try:
                 dec = Fernet(self.key).decrypt(bytes(file['name'], 'utf-8')).decode('utf-8')
@@ -221,6 +233,8 @@ class Window(QMainWindow):
         
     def up_dir(self):
         """Subir um diretório no visualizador de arquivos"""
+        if self.showTrash:
+            return
         if self.parent_dir['valid']:
             self.current_dir = self.parent_dir.copy()
             self.parent_dir['valid'] = False
@@ -279,7 +293,24 @@ class Window(QMainWindow):
                 with open(download_path, 'wb') as file:
                     file.write(dec_file)
                 qm.information(self, '', "Arquivo baixado com sucesso.")
-            
+        
+    def toggle_trash(self):
+        if self.showTrash:
+            self.showTrash = False
+        else:
+            self.showTrash = True
+        self.get_saved_files()
+
+    def restore_file(self):
+        selected = self.listWidget.currentItem().text()
+        if selected[0] == '/':
+            file_id = self.directories[selected[1:]]
+        else:
+            file_id = self.saved_files[selected]
+        request = self.drive_service.files().update(fileId=file_id, body={'trashed': False}).execute()
+        self.get_saved_files()
+        QtWidgets.QMessageBox().about(self, '', "Arquivo restaurado.")
+
 def main():
     """Buscando chave de acesso no token (pen drive)
     Caso não seja encontrada, a chave recebe o valor 0

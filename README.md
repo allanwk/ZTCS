@@ -23,3 +23,4 @@ Functionality
 - Creation of encrypted folders
 - Visualization of stored files
 - File deletion
+- Trashed files management

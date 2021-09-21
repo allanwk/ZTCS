@@ -24,3 +24,4 @@ Funcionalidades
 - Criação de pastas com nomes criptografados
 - Visualização em lista dos arquivos salvos
 - Exclusão de arquivos, sendo estes movidos para a lixeira
+- Gerenciamento de arquivos na lixeira
